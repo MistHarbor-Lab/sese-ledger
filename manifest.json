@@ -2,9 +2,9 @@
   "display_name": "瑟瑟台账",
   "loading_order": 210,
   "js": "index.js",
-  "author": "原作者 / 雾港（安装适配）",
-  "version": "0.1.0-alpha.1",
-  "homePage": "https://github.com/ike888-go/sese-ledger",
+  "author": "Original author / MistHarbor (installation adaptation)",
+  "version": "0.1.0-alpha.2",
+  "homePage": "https://github.com/MistHarbor-Lab/sese-ledger",
   "auto_update": true,
   "minimum_client_version": "1.13.0"
 }
