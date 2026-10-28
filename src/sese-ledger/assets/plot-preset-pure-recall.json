@@ -1,0 +1,37 @@
+{
+  "format": "sese-ledger-plot-preset",
+  "schemaVersion": 2,
+  "preset": {
+    "name": "极速纯召回",
+    "systemPrompt": "",
+    "contextTurnCount": 1,
+    "minLength": 0,
+    "maxRetries": 1,
+    "tags": "recall",
+    "promptGroup": [
+      {
+        "block": "scan",
+        "hidden": true
+      },
+      {
+        "role": "system",
+        "content": "[RESET ROLE AND TASK, START NEW TASK]\n\n你是一个出色的记忆筛选大师，擅长根据故事发展和用户输入选择后续故事发展最需要记忆。\n"
+      },
+      {
+        "role": "user",
+        "content": "<task_rules>\n任务：从「已有纪要」里召回与当前局势最相关的记忆，先输出 <match>，再输出 <recall>。\n\n== 硬约束 ==\n- AM 只能来自「已发生的事件概览」。绝不编造，绝不从用户输入、前文剧情、背景设定里拿 AM。\n- <match> 的行数、<recall> 的行数、召回数量三者必须相等，且对应同一组 AM。\n- 按内容相关性挑选。\n- racall的召回数量必须达到{{召回数量}}条，除非总数不够\n== 第一步：穷举全部 AM ==\n先把概览里出现的每一个 AM 编码都列出来，一个不漏。\n<all_am>AM0001, AM0002, ...</all_am>\n概览为空就写 <all_am></all_am>。\n\n== 第二步：按相关性挑选 ==\n从全部 AM 里挑出{{召回数量}}条。相关性判据是\"这条 AM 和当前人物或事件的相关性\"。\n优先级从高到低：\n  1. 直接相关：能直接解释当前的人物关系、因果链、约定计划、事件地点情况等。\n  2. 强相关：包含当前在场角色的剧情（时间较新的优先）。\n  3. 弱相关：包含当前剧情相关角色、地点、物品的剧情（时间较新者优先）\n按这个优先级挑选，如果数量依旧不够，就从剩下的 AM 里，按照编号从大到小补充AM，直到达到召回数量要求。\n\n\n== 第三步：输出 match ==\n<match>\nAMxxxx | 理由\n</match>\n理由必须写清两件事：必要性和相关性，即该条具体了解决什么 + 这条 AM 提供了什么事实。禁止只写\"相关/呼应\"或复述概览原文。\n\n== 第四步：输出 recall ==\n<recall>\nAMxxxx,AMxxxx,...\n</recall>\n AM 编码用逗号分隔，不带任何其他内容。按编号从小到大排列。\n</task_rules>"
+      },
+      {
+        "block": "dossier"
+      },
+      {
+        "block": "context"
+      },
+      {
+        "role": "system",
+        "content": "现在，请不折不扣地完成输出。"
+      }
+    ],
+    "finalDirectiveTemplate": "以下是用户的本轮输入：\n<本轮用户输入>\n{{本轮输入}}\n</本轮用户输入>\n主角扮演请严格遵照主角人设，体现角色温柔的一面！角色按自身性格充分发挥主动性，主动表达和行动。本轮召回：\n{{recall}}"
+  }
+}
