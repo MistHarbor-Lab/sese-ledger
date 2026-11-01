@@ -39,6 +39,7 @@ import {
   type SlChatOwner,
 } from './identity';
 import { convergeBookToTemplate, normalizeTemplate } from './blueprint';
+import { validateVisualChanges } from '../../visual/domain';
 
 export type LedgerSource = LedgerEntry['source'];
 
@@ -870,6 +871,9 @@ export function createLedgerRuntime(deps: {
       scope = ctx ? writeScope(ctx.chat) : null;
       if (!scope) return { ok: false, changedTables: [], errors: ['当前聊天没有可写入的 AI 楼层'], entry: null };
     }
+    const visual = validateVisualChanges(book, ops, source, undefined, scope.aiFloor);
+    if (visual.errors.length) return { ok: false, changedTables: [], errors: visual.errors, entry: null };
+    ops = visual.ops;
     bumpRevision();
     const before = workbookSignatures(book);
     const errors: string[] = [];

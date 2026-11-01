@@ -1,9 +1,9 @@
 {
   "name": "sese-ledger",
-  "version": "0.1.0-alpha.2",
+  "version": "0.2.0-alpha.2",
   "private": true,
   "type": "module",
-  "description": "瑟瑟台账的 SillyTavern 独立安装适配",
+  "description": "瑟瑟台账原生安装与视觉事实填表联动",
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node --test tests/*.test.mjs",

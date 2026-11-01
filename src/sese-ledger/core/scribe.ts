@@ -1,4 +1,6 @@
 // ===== AI 填表（SQL 输出 + 严格校验 + 调度） =====
+import { validateVisualChanges, visualRowInPrompt, visualFillCoupling, visualBaseline } from '../../visual/domain';
+import { TABLES as VISUAL_TABLES } from '../../visual/schema';
 //
 // 调度语义对齐在用副本（auto-update-plan 实证）：
 // - contextDepth（触达层数）-1/0→全局默认 5；updateFrequency -1→全局默认 1、**0=不参与自动更新**；
@@ -131,6 +133,7 @@ function manualFillLabel(scopeName: string, bucket: Pick<UpdateGroup, 'groupId' 
 
 /** 计算自动填表计划（纯函数）。schedule: tableId → lastFilledAiFloor。 */
 export function computeUpdatePlan(book: BookModel, chat: any[], schedule: Record<string, number>, globals: ScheduleGlobals): UpdateGroup[] {
+  const visualCoupling = visualFillCoupling(book, schedule);
   const aiIndices: number[] = [];
   for (let i = 0; i < chat.length; i++) {
     if (isAnchorCandidate(chat[i])) aiIndices.push(i);
@@ -138,7 +141,7 @@ export function computeUpdatePlan(book: BookModel, chat: any[], schedule: Record
   const totalAi = aiIndices.length;
   const groups = new Map<string, UpdateGroup>();
   for (const table of sortedTables(book)) {
-    const cfg = (table.updateConfig || {}) as Record<string, number | undefined>;
+    const cfg = (visualCoupling?.ids.has(table.tableId) ? visualCoupling.config : table.updateConfig || {}) as Record<string, number | undefined>;
     const rawDepth = Number.isFinite(cfg.contextDepth) ? (cfg.contextDepth as number) : -1;
     const rawFreq = Number.isFinite(cfg.updateFrequency) ? (cfg.updateFrequency as number) : -1;
     const rawSkip = Number.isFinite(cfg.skipFloors) ? (cfg.skipFloors as number) : -1;
@@ -147,7 +150,7 @@ export function computeUpdatePlan(book: BookModel, chat: any[], schedule: Record
     const threshold = (rawDepth === -1 || rawDepth === 0) ? globals.autoUpdateThreshold : Math.max(0, rawDepth);
     const frequency = rawFreq === -1 ? globals.autoUpdateFrequency : rawFreq;
     const skipFloors = Math.max(0, rawSkip === -1 ? globals.skipUpdateFloors : rawSkip);
-    const lastFilled = Math.max(0, Number(schedule[table.tableId]) || 0);
+    const lastFilled = visualCoupling?.ids.has(table.tableId) ? visualCoupling.lastFilled : Math.max(0, Number(schedule[table.tableId]) || 0);
     const unrecorded = Math.max(0, (totalAi - skipFloors) - lastFilled);
     if (frequency <= 0 || threshold <= 0 || unrecorded < frequency) continue;
     const effective = skipFloors > 0 ? aiIndices.slice(0, -skipFloors) : aiIndices;
@@ -319,6 +322,7 @@ export function projectTableForPrompt(table: TableModel, ctx: FillPromptContext,
       const cells = table.rows.get(rowId)!;
       if (needsRowGate && !rowGate) rowGate = prepareRowGate(table, ctx);
       if (!v2RowEntersPrompt(table, cells, ctx, rowGate)) continue;
+      if (!visualRowInPrompt(table, cells, ctx.book, ctx.keywordText ?? ctx.storyText)) continue;
       lines.push(rowProjectionLine(cells));
     }
     parts.push(`【已有数据】（列顺序如下；无行=空表）\n${lines.join('\n')}`);
@@ -559,11 +563,13 @@ export function fillPromptSpecsOf(settings: { fillPrompt?: unknown }): LedgerPro
  */
 
 /** AI 输出 → 校验结果：走 SQL 通道；空输出＝无变化直接通过，判别不出可执行内容＝点名报错（绝不静默当"无变化"通过）。 */
-export function parseFillOutput(book: BookModel, raw: string): ValidationOutcome {
+export function parseFillOutput(book: BookModel, raw: string, evidenceText?: string): ValidationOutcome {
   const text = String(raw || '');
   if (!text.trim()) return { ops: [], errors: [], partial: false };
   const r = runFillSql(book, text); // 纪要编号在 fill-sql 内补（校验之前；见 core/summary-code.ts）
   const outcome: ValidationOutcome = { ops: r.ops, errors: r.errors, partial: r.ops.length > 0 && r.errors.length > 0 };
+  const visual = validateVisualChanges(book, outcome.ops, 'ai', evidenceText == null ? undefined : evidenceText + '\n' + visualBaseline(book, evidenceText));
+  if (visual.errors.length) return { ops: [], errors: [...outcome.errors, ...visual.errors], partial: false };
   if (outcome.ops.length === 0 && outcome.errors.length === 0) {
     // 示例用尖括号占位（不用「表名/列名」这种像真名的词——会被照抄进 SQL）
     outcome.errors.push("未识别到可执行内容（只输出 SQL 语句，形如 UPDATE <表名> SET <列名> = '值' WHERE row_id = 1，表名/列名照抄【当前台账】；一句一行、以分号结尾）");
@@ -618,7 +624,13 @@ export function buildFillRequest(
     context: contextBody ? '【当前正文】\n下面为本轮剧情正文，是填表的唯一事实依据。\n\n' + contextBody : '',
     scan: '下面为与本轮填表相关的背景设定与知识条目（世界书条目里关键词命中的参考资料＋当前角色卡设定：用户人设 / 角色卡描述 / 角色性格 / 场景 / 示例对话），供理解人物、地点、关系与既有设定用，不属于本轮正文。',
   };
+  if (tables.some(t => Object.values(VISUAL_TABLES).includes(t.name as any))) {
+    const baseline = visualBaseline(book, contextBody);
+    if (baseline) blocks.dossier += '\n\n【已有角色视觉资料】仅供视觉表首次建档和核对；属于已经确认的旧事实，不是本轮新事件。依据可逐字引用下列资料；当前正文明确发生变化时再更新，禁止借此补造未知细节。\n' + baseline;
+    if (baseline) blocks.context = blocks.context.replace('是填表的唯一事实依据', '是本轮变化的事实依据；视觉表首次建档另可引用【已有角色视觉资料】');
+  }
   let instruction = instructionOverride || FILL_OUTPUT_INSTRUCTION;
+  if (tables.some(t => Object.values(VISUAL_TABLES).includes(t.name as any))) instruction += '\n视觉表首次建档可从【已有角色视觉资料】记录尚未入视觉表的既有事实；只填有依据的项目，不要求补满59项。这不代表本轮人物发生了变化。';
   if (ctx.extraRequest && ctx.extraRequest.trim()) {
     instruction += `\n\n【本次附加要求】\n${ctx.extraRequest.trim()}`;
   }
@@ -859,7 +871,7 @@ async function runFillAttempts(
         break;
       }
       lastRaw = String(raw || '');
-      outcome = parseFillOutput(book, raw);
+      outcome = parseFillOutput(book, raw, ctx.storyText);
       if (outcome.errors.length === 0) break;
       // 每次尝试的违规明细进运行日志（toast 只留最终汇总；这里的清单与原始输出才是排查证据）
       deps.report?.({

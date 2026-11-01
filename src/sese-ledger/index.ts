@@ -11,6 +11,9 @@
 
 import TEMPLATE_JSON from '../unified-statusbar/docs/色色灵感数据库模板V3.3.4.json';
 import STANDARD_TEMPLATE_JSON from './assets/standard-template.json';
+import { withVisualTemplateV2, withVisualWorkbook, TABLES as VISUAL_TABLES } from '../visual/schema';
+import { createVisualLedgerApi } from '../visual/api';
+import { VISUAL_LEDGER_EVENT } from '../visual/contract';
 import { serverFileStore } from '../unified-statusbar/core/server-file-store';
 import { createSillyChatMetadataHost } from '../unified-statusbar/core/silly-chat-metadata-host';
 import { UB_EVENT } from '../unified-statusbar/core/events';
@@ -149,7 +152,7 @@ export function bootLedger(): { dispose: () => Promise<void> } {
   };
 
   // ---- 标准模板 v2（内置 = 台账自持的 v2 模板资产；与主项目 v1 模板解耦，换代＝换 assets/standard-template.json） ----
-  const standardNorm = normalizeTemplateAny(STANDARD_TEMPLATE_JSON as unknown);
+  const standardNorm = normalizeTemplateAny(withVisualTemplateV2(STANDARD_TEMPLATE_JSON));
   if (!standardNorm.ok || !standardNorm.workbook || !standardNorm.v2) throw new Error('内置标准模板解析失败：' + standardNorm.errors.join('；'));
   const STANDARD_TEMPLATE = standardNorm.workbook;
   const STANDARD_TEMPLATE_V2 = { ...standardNorm.v2, name: STANDARD_PRESET_NAME };
@@ -218,7 +221,7 @@ export function bootLedger(): { dispose: () => Promise<void> } {
         warnedConvergeTemplate = name;
         warn(`模板「${name}」：${normalized.warnings.join('；')}`, '配置');
       }
-      return normalized.workbook;
+      return withVisualWorkbook(normalized.workbook);
     }
     return STANDARD_TEMPLATE;
   }
@@ -530,7 +533,11 @@ export function bootLedger(): { dispose: () => Promise<void> } {
       console.log('[瑟瑟台账]', `[填表·${event.level}] ${event.message}`);
     },
     // 本轮「在场角色表」分组落账完成 → 广播给状态栏（立绘每轮更新的唯一触发源）。
-    onPresenceTableFilled: broadcastPresenceFilled,
+    onPresenceTableFilled: (payload: { aiFloor: number; tableNames: string[] }) => {
+      // 默认三类视觉表与在场表合批；定向只填在场表时不抢先生成旧造型。
+      const required = [VISUAL_TABLES.fixed, VISUAL_TABLES.current, VISUAL_TABLES.items];
+      if (required.every(name => payload.tableNames.includes(name))) broadcastPresenceFilled(payload);
+    },
   };
 
   // ---- 纪要合并（台账独占） ----
@@ -835,6 +842,7 @@ export function bootLedger(): { dispose: () => Promise<void> } {
 
   // ---- canonical API ----
   const canonical = {
+    visual: createVisualLedgerApi(runtime, getStContext),
     version: LEDGER_VERSION,
     ready: Promise.resolve(),
     /** 兼容方法面（老形态 API 的直接投影；两项目探测 SeseLedgerAPI 优先时经此桥接）。 */
@@ -862,7 +870,7 @@ export function bootLedger(): { dispose: () => Promise<void> } {
       return table?.v2def?.worldbook?.enabled === true && !isStoppedTable(table);
     },
     apply(ops: any[], options?: any) { return runtime.commitOps(options?.source || 'bridge', ops, { notify: options?.notify }); },
-    onChange(cb: (data: WorkbookJson) => void) { runtime.onTableUpdate(cb); },
+    onChange(cb: (data: WorkbookJson) => void) { return runtime.onTableUpdate(cb); },
     getBlueprint(options?: any) { return face.getTableTemplate(options); },
     applyBlueprint(json: unknown, options?: any) { return face.importTemplateFromData(json, options); },
     listBlueprintPresets() { return [...settings.listTemplatePresetNames()]; },
@@ -1180,6 +1188,7 @@ export function bootLedger(): { dispose: () => Promise<void> } {
   // ---- 双全局注册 ----
   w.SeseLedgerAPI = canonical;
   try { (hostWindow().parent as any).SeseLedgerAPI = canonical; } catch (_e) { /* cross-origin */ }
+  for (const target of signalWindows()) { try { target.dispatchEvent(new Event(VISUAL_LEDGER_EVENT)); } catch {} }
   w.__SL_LOADED__ = true;
 
   log(`装载完成（${LEDGER_VERSION}${realDbPresent ? '，真数据库在场：旁观模式' : '，已接管 AutoCardUpdaterAPI'}）`);

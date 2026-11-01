@@ -1,0 +1,17 @@
+{
+  "feature": "visual-ledger",
+  "files": {
+    "src/sese-ledger/index.ts": {
+      "sha256": "f1f6357ac61583643e97ddc196d5846ca84b35d7203cf529eb61c88fffd59092",
+      "reason": "模板补充视觉表、注册视觉读写接口，并在关联表填完后通知立绘"
+    },
+    "src/sese-ledger/core/runtime.ts": {
+      "sha256": "c507c55662eea472ee3f83738c61c45747f4902779113bdd0b8f171ce5f9a49d",
+      "reason": "单写者提交前检查视觉事实完整性与本轮人工纠正，沿现有楼层记录回退"
+    },
+    "src/sese-ledger/core/scribe.ts": {
+      "sha256": "f5fb9921c31dcb47b228920fa2db4d9f46ab980d9752a3307127043e6390191e",
+      "reason": "视觉事实合批填表、已有角色资料初始化和原文依据检查"
+    }
+  }
+}

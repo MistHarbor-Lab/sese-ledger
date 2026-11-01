@@ -26,9 +26,20 @@ const dist = await readFile(path.join(root, 'dist/index.js'), 'utf8');
 assert(dist.length > 1000, '构建产物为空');
 assert(!dist.includes('D:\\酒馆知识库'), '产物包含本机绝对路径');
 const receipt = await readJson('source-files.sha256.json');
+// 原版指纹保留；明确列出的功能改动使用独立回执，不能重写原版指纹来掩盖差异。
+const overrides = await readJson('source-overrides.sha256.json').catch(error => {
+  if (error.code === 'ENOENT') return { files: {} };
+  throw error;
+});
+for (const [name, entry] of Object.entries(overrides.files)) {
+  assert(Object.hasOwn(receipt.files, name), `改动回执不是原版文件：${name}`);
+  assert(typeof entry.reason === 'string' && entry.reason.trim(), `改动回执缺少原因：${name}`);
+  assert.match(entry.sha256, /^[a-f0-9]{64}$/);
+  assert.notEqual(entry.sha256, receipt.files[name], `无需列出的源码改动：${name}`);
+}
 for (const [name, expected] of Object.entries(receipt.files)) {
   assert(name.startsWith('src/') && !name.includes('..'), '源码校验路径不安全');
   const actual = createHash('sha256').update(await readFile(path.join(root, name))).digest('hex');
-  assert.equal(actual, expected, `原始源码被修改：${name}`);
+  assert.equal(actual, overrides.files[name]?.sha256 || expected, `源码与原版/改动回执不符：${name}`);
 }
 console.log(`${pkg.name}: 清单、入口依赖、构建产物检查通过（不代表真机验收）。`);
